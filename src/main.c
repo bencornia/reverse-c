@@ -1,21 +1,20 @@
-#include <signal.h>
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
+/* Valid directions on the gameboard for the player to travel. */
 typedef enum { N, NE, E, SE, S, SW, W, NW } direction_t;
 
+/* A player. */
 typedef struct {
     unsigned long long moves;
     char *name;
     char *symbol;
 } player_t;
 
+/* Creates a new player */
 player_t *newPlayer(char *name, char *symbol, unsigned long long board) {
     player_t *player;
     if ((player = malloc(sizeof(player_t))) == NULL) {
@@ -30,40 +29,15 @@ player_t *newPlayer(char *name, char *symbol, unsigned long long board) {
     return player;
 }
 
-typedef struct {
-    // Construction characters
-    char *sepHoriz;
-    char *sepVert;
-    char *intersectTop;
-    char *intersectBottom;
-    char *intersectLeft;
-    char *intersectRight;
-    char *intersectCenter;
-    char *cornerTopLeft;
-    char *cornerTopRight;
-    char *cornerBottomLeft;
-    char *cornerBottomRight;
-
-    // Axis labels
-    char xLabels[8];
-    char yLabels[8];
-} gameboard_t;
-
-void logger(player_t *players[], int canPlay) {
-    FILE *file = fopen("log.txt", "a");
-    fprintf(file, "%llx,%llx,%x\n", players[0]->moves, players[1]->moves,
-            canPlay);
-
-    fclose(file);
-}
-
+/* Helper to free player memory. */
 void freePlayers(player_t *players[]) {
     for (int i = 0; i < 3; i++) {
         free(players[i]);
     }
 }
 
-int getBitCount(unsigned long long num) {
+/* Calculates the score of a player. */
+int calcScore(unsigned long long num) {
     int bitCount = 0;
     while (num) {
         bitCount += num & 1;
@@ -72,14 +46,16 @@ int getBitCount(unsigned long long num) {
     return bitCount;
 }
 
+/* Prints a formatted score */
 void printScore(player_t *player1, player_t *player2) {
     printf("\n         ╭───┬────┬─┬───┬────╮");
     printf("\n         │ %s │ %02d │ │ %s │ %02d │", player1->symbol,
-           getBitCount(player1->moves), player2->symbol,
-           getBitCount(player2->moves));
+           calcScore(player1->moves), player2->symbol,
+           calcScore(player2->moves));
     printf("\n         ╰───┴────┴─┴───┴────╯\n\n");
 }
 
+/* Prints the formatted board */
 void printBoard(player_t *players[], int count) {
     printScore(players[0], players[1]);
 
@@ -114,6 +90,7 @@ void printBoard(player_t *players[], int count) {
     printf("\b│\n  ╰───┴───┴───┴───┴───┴───┴───┴───╯\n");
 }
 
+/* Gets player input and handles exits. */
 char *getInput(char *playerName, player_t *players[]) {
     printf("\n%s's: ", playerName);
     // Read into buffer
@@ -141,6 +118,7 @@ char *getInput(char *playerName, player_t *players[]) {
     return input;
 }
 
+/* Calculates the offset of a particular move */
 int calcOffset(char *input) {
     //
     if (input[0] < 'a' || input[0] > 'h') {
@@ -157,6 +135,7 @@ int calcOffset(char *input) {
     return x + y;
 }
 
+/* Gets the index of the current position. */
 int getPosIndex(unsigned long long pos) {
     int index = -1;
     while (pos) {
@@ -166,6 +145,7 @@ int getPosIndex(unsigned long long pos) {
     return index;
 }
 
+/* Updates the players position */
 unsigned long long updatePos(direction_t dir, unsigned long long pos) {
     int index = getPosIndex(pos);
 
@@ -212,11 +192,12 @@ unsigned long long updatePos(direction_t dir, unsigned long long pos) {
     return 0;
 }
 
+/* Searches the board for valid move. */
 unsigned long long searchBoard(player_t *players[], unsigned long long pos,
                                unsigned long long stack, int curr, int other,
                                direction_t dirs[], int dirCount) {
     unsigned long long board = players[curr]->moves | players[other]->moves;
-    int depth = getBitCount(stack);
+    int depth = calcScore(stack);
 
     // Base case 1: can't play on a used grid
     if (depth == 0 && (board & pos) > 0) {
@@ -262,6 +243,7 @@ unsigned long long searchBoard(player_t *players[], unsigned long long pos,
     return 0;
 }
 
+/* Gets all the available moves to the current player */
 unsigned long long getMoves(player_t *players[], int curr, int other) {
     direction_t dirs[] = {N, NE, E, SE, S, SW, W, NW};
 
@@ -275,6 +257,7 @@ unsigned long long getMoves(player_t *players[], int curr, int other) {
     return moves;
 }
 
+/* Switches the current player */
 void switchCurrentPlayer(int *curr, int *other) {
     *curr = (*curr + 1) % 2;
     *other = (*other + 1) % 2;
@@ -329,31 +312,22 @@ int main() {
             continue;
         }
 
-        // Has to be a valid move
+        // Has to be an available move
         unsigned long long pos = (unsigned long long)1 << offset;
         if ((pos & (availableMoves & ~board)) == 0) {
             message = "\n-- Can't play there! --\n";
             continue;
         }
 
-        // // Can't play on a spot that's taken
-        if ((board & pos) > 0) {
-            message = "\n--- Can't play there! ---\n";
-            continue;
-        }
-
         unsigned long long result = searchBoard(
             players, pos, (unsigned long long)0, curr, other, dirs, 8);
 
-        // update board
         players[curr]->moves |= result;
         players[other]->moves =
             players[other]->moves ^ (players[other]->moves & result);
 
-        // update current
         switchCurrentPlayer(&curr, &other);
         message = "";
-
         canPlay >>= 1;
     }
 
