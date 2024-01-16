@@ -49,34 +49,6 @@ typedef struct {
     char yLabels[8];
 } gameboard_t;
 
-gameboard_t *newGameBoard(char *sepHoriz, char *sepVert, char *intersectTop,
-                          char *intersectBottom, char *intersectLeft,
-                          char *intersectRight, char *intersectCenter,
-                          char *cornerTopLeft, char *cornerTopRight,
-                          char *cornerBottomLeft, char *cornerBottomRight) {
-    gameboard_t *gameBoard;
-    if ((gameBoard = malloc(sizeof(gameboard_t))) == NULL) {
-        perror("Memory allocation failed");
-        exit(EXIT_FAILURE);
-    }
-
-    gameBoard->sepHoriz = strdup(sepHoriz);
-    gameBoard->sepVert = strdup(sepVert);
-    gameBoard->intersectTop = strdup(intersectTop);
-    gameBoard->intersectBottom = strdup(intersectBottom);
-    gameBoard->intersectLeft = strdup(intersectLeft);
-    gameBoard->intersectRight = strdup(intersectRight);
-    gameBoard->intersectCenter = strdup(intersectCenter);
-    gameBoard->cornerTopLeft = strdup(cornerTopLeft);
-    gameBoard->cornerTopRight = strdup(cornerTopRight);
-    gameBoard->cornerBottomLeft = strdup(cornerBottomLeft);
-    gameBoard->cornerBottomRight = strdup(cornerBottomRight);
-
-    // How do I assign the labels????
-
-    return gameBoard;
-}
-
 void logger(player_t *players[], int canPlay) {
     FILE *file = fopen("log.txt", "a");
     fprintf(file, "%llx,%llx,%x\n", players[0]->moves, players[1]->moves,
@@ -303,6 +275,11 @@ unsigned long long getMoves(player_t *players[], int curr, int other) {
     return moves;
 }
 
+void switchCurrentPlayer(int *curr, int *other) {
+    *curr = (*curr + 1) % 2;
+    *other = (*other + 1) % 2;
+}
+
 int main() {
     player_t *players[3] = {
         newPlayer("Black", "◉", (unsigned long long)0x810000000),
@@ -333,8 +310,7 @@ int main() {
 
         printf("%s", message);
         if (availableMoves == 0) {
-            curr = (curr + 1) % 2;
-            other = (curr + 1) % 2;
+            switchCurrentPlayer(&curr, &other);
             canPlay = (canPlay << 1) + 1;
             continue;
         }
@@ -375,8 +351,7 @@ int main() {
             players[other]->moves ^ (players[other]->moves & result);
 
         // update current
-        curr = (curr + 1) % 2;
-        other = (curr + 1) % 2;
+        switchCurrentPlayer(&curr, &other);
         message = "";
 
         canPlay >>= 1;
