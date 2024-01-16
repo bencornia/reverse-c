@@ -1,40 +1,97 @@
+#include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <wchar.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
-enum direction { N, NE, E, SE, S, SW, W, NW };
+typedef enum { N, NE, E, SE, S, SW, W, NW } direction_t;
 
 typedef struct {
-    uint64_t board;
+    unsigned long long moves;
     char *name;
     char *symbol;
-} Player;
+} player_t;
 
-Player *newPlayer(char *name, char *symbol, uint64_t board) {
-    Player *player;
-    if ((player = malloc(sizeof(Player))) == NULL) {
+player_t *newPlayer(char *name, char *symbol, unsigned long long board) {
+    player_t *player;
+    if ((player = malloc(sizeof(player_t))) == NULL) {
         perror("Memory Allocation failed");
         exit(EXIT_FAILURE);
     }
 
     player->name = strdup(name);
     player->symbol = strdup(symbol);
-    player->board = board;
+    player->moves = board;
 
     return player;
 }
 
-void freePlayers(Player *players[]) {
+typedef struct {
+    // Construction characters
+    char *sepHoriz;
+    char *sepVert;
+    char *intersectTop;
+    char *intersectBottom;
+    char *intersectLeft;
+    char *intersectRight;
+    char *intersectCenter;
+    char *cornerTopLeft;
+    char *cornerTopRight;
+    char *cornerBottomLeft;
+    char *cornerBottomRight;
+
+    // Axis labels
+    char xLabels[8];
+    char yLabels[8];
+} gameboard_t;
+
+gameboard_t *newGameBoard(char *sepHoriz, char *sepVert, char *intersectTop,
+                          char *intersectBottom, char *intersectLeft,
+                          char *intersectRight, char *intersectCenter,
+                          char *cornerTopLeft, char *cornerTopRight,
+                          char *cornerBottomLeft, char *cornerBottomRight) {
+    gameboard_t *gameBoard;
+    if ((gameBoard = malloc(sizeof(gameboard_t))) == NULL) {
+        perror("Memory allocation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    gameBoard->sepHoriz = strdup(sepHoriz);
+    gameBoard->sepVert = strdup(sepVert);
+    gameBoard->intersectTop = strdup(intersectTop);
+    gameBoard->intersectBottom = strdup(intersectBottom);
+    gameBoard->intersectLeft = strdup(intersectLeft);
+    gameBoard->intersectRight = strdup(intersectRight);
+    gameBoard->intersectCenter = strdup(intersectCenter);
+    gameBoard->cornerTopLeft = strdup(cornerTopLeft);
+    gameBoard->cornerTopRight = strdup(cornerTopRight);
+    gameBoard->cornerBottomLeft = strdup(cornerBottomLeft);
+    gameBoard->cornerBottomRight = strdup(cornerBottomRight);
+
+    // How do I assign the labels????
+
+    return gameBoard;
+}
+
+void logger(player_t *players[], int canPlay) {
+    FILE *file = fopen("log.txt", "a");
+    fprintf(file, "%llx,%llx,%x\n", players[0]->moves, players[1]->moves,
+            canPlay);
+
+    fclose(file);
+}
+
+void freePlayers(player_t *players[]) {
     for (int i = 0; i < 3; i++) {
         free(players[i]);
     }
 }
 
-int getBitCount(uint64_t num) {
+int getBitCount(unsigned long long num) {
     int bitCount = 0;
     while (num) {
         bitCount += num & 1;
@@ -43,14 +100,16 @@ int getBitCount(uint64_t num) {
     return bitCount;
 }
 
-void printScore(int bScore, int wScore) {
+void printScore(player_t *player1, player_t *player2) {
     printf("\n         ╭───┬────┬─┬───┬────╮");
-    printf("\n         │ B │ %02d │ │ W │ %02d │", bScore, wScore);
+    printf("\n         │ %s │ %02d │ │ %s │ %02d │", player1->symbol,
+           getBitCount(player1->moves), player2->symbol,
+           getBitCount(player2->moves));
     printf("\n         ╰───┴────┴─┴───┴────╯\n\n");
 }
 
-void printBoard(Player *players[], int count) {
-    printScore(getBitCount(players[0]->board), getBitCount(players[1]->board));
+void printBoard(player_t *players[], int count) {
+    printScore(players[0], players[1]);
 
     char topLetters[8] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'};
     printf("    ");
@@ -63,10 +122,10 @@ void printBoard(Player *players[], int count) {
             printf("%d │", (i / 8) + 1);
         }
 
-        uint64_t pos = (uint64_t)1 << i;
+        unsigned long long pos = (unsigned long long)1 << i;
         int isOccupied = false;
         for (int i = 0; i < count; i++) {
-            if ((players[i]->board & pos) > 0) {
+            if ((players[i]->moves & pos) > 0) {
                 printf(" %s │", players[i]->symbol);
                 isOccupied = true;
             }
@@ -83,7 +142,7 @@ void printBoard(Player *players[], int count) {
     printf("\b│\n  ╰───┴───┴───┴───┴───┴───┴───┴───╯\n");
 }
 
-char *getInput(char *playerName, Player *players[]) {
+char *getInput(char *playerName, player_t *players[]) {
     printf("\n%s's: ", playerName);
     // Read into buffer
     char buffer[256];
@@ -126,7 +185,7 @@ int calcOffset(char *input) {
     return x + y;
 }
 
-int getPosIndex(uint64_t pos) {
+int getPosIndex(unsigned long long pos) {
     int index = -1;
     while (pos) {
         index++;
@@ -135,7 +194,7 @@ int getPosIndex(uint64_t pos) {
     return index;
 }
 
-uint64_t updatePos(enum direction dir, uint64_t pos) {
+unsigned long long updatePos(direction_t dir, unsigned long long pos) {
     int index = getPosIndex(pos);
 
     if (dir == N && index > 7) {
@@ -181,9 +240,10 @@ uint64_t updatePos(enum direction dir, uint64_t pos) {
     return 0;
 }
 
-uint64_t searchBoard(Player *players[], uint64_t pos, uint64_t stack, int curr,
-                     int other, enum direction dirs[], int dirCount) {
-    uint64_t board = players[curr]->board | players[other]->board;
+unsigned long long searchBoard(player_t *players[], unsigned long long pos,
+                               unsigned long long stack, int curr, int other,
+                               direction_t dirs[], int dirCount) {
+    unsigned long long board = players[curr]->moves | players[other]->moves;
     int depth = getBitCount(stack);
 
     // Base case 1: can't play on a used grid
@@ -197,7 +257,7 @@ uint64_t searchBoard(Player *players[], uint64_t pos, uint64_t stack, int curr,
     }
 
     // Base case 3: can't play on own tile in 2nd move
-    if (depth == 1 && (players[curr]->board & pos) > 0) {
+    if (depth == 1 && (players[curr]->moves & pos) > 0) {
         return 0;
     }
 
@@ -205,20 +265,20 @@ uint64_t searchBoard(Player *players[], uint64_t pos, uint64_t stack, int curr,
     stack |= pos;
 
     // Base case 4: we found a path
-    if (depth > 1 && (players[curr]->board & pos) > 0) {
+    if (depth > 1 && (players[curr]->moves & pos) > 0) {
         return stack;
     }
 
     // Recursive case
-    uint64_t result = 0;
+    unsigned long long result = 0;
     for (int i = 0; i < dirCount; i++) {
         // Update position ensuring that its within bounds
-        enum direction dir = dirs[i];
-        uint64_t newPos = updatePos(dir, pos);
+        direction_t dir = dirs[i];
+        unsigned long long newPos = updatePos(dir, pos);
         if (newPos == 0) {
             continue;
         }
-        enum direction newDirs[1] = {dir};
+        direction_t newDirs[1] = {dir};
 
         result |= searchBoard(players, newPos, stack, curr, other, newDirs, 1);
     }
@@ -230,12 +290,12 @@ uint64_t searchBoard(Player *players[], uint64_t pos, uint64_t stack, int curr,
     return 0;
 }
 
-uint64_t getMoves(Player *players[], int curr, int other) {
-    enum direction dirs[] = {N, NE, E, SE, S, SW, W, NW};
+unsigned long long getMoves(player_t *players[], int curr, int other) {
+    direction_t dirs[] = {N, NE, E, SE, S, SW, W, NW};
 
-    uint64_t moves = 0;
+    unsigned long long moves = 0;
     for (int i = 0; i < 64; i++) {
-        uint64_t pos = (uint64_t)1 << i;
+        unsigned long long pos = (unsigned long long)1 << i;
 
         moves |= searchBoard(players, pos, 0, curr, other, dirs, 8);
     }
@@ -244,36 +304,39 @@ uint64_t getMoves(Player *players[], int curr, int other) {
 }
 
 int main() {
-    Player *players[3];
-    players[0] = newPlayer("Black", "◉", (uint64_t)0x810000000);
-    players[1] = newPlayer("White", "○", (uint64_t)0x1008000000);
-    players[2] = newPlayer("Hint", "‣", (uint64_t)0x0);
+    player_t *players[3] = {
+        newPlayer("Black", "◉", (unsigned long long)0x810000000),
+        newPlayer("White", "○", (unsigned long long)0x1008000000),
+        newPlayer("Hint", "‣", (unsigned long long)0x0)};
 
     int curr = 0;
     int other = 1;
     char *message = "";
     unsigned canPlay = 0;
-    enum direction dirs[] = {N, NE, E, SE, S, SW, W, NW};
+    direction_t dirs[] = {N, NE, E, SE, S, SW, W, NW};
 
     while (true) {
         // Get available moves
-        uint64_t availableMoves = getMoves(players, curr, other);
-        if (availableMoves == 0) {
-            canPlay = (canPlay << 1) + 1;
-            continue;
-        }
+        unsigned long long availableMoves = getMoves(players, curr, other);
 
         // Assign placeholders for available moves
-        uint64_t board = players[curr]->board | players[other]->board;
-        players[2]->board = availableMoves ^ (availableMoves & board);
+        unsigned long long board = players[curr]->moves | players[other]->moves;
+        players[2]->moves = availableMoves ^ (availableMoves & board);
 
         // Redraw board
         system("clear");
         printBoard(players, 3);
-        printf("%s", message);
 
         if (canPlay >= 7) {
             break;
+        }
+
+        printf("%s", message);
+        if (availableMoves == 0) {
+            curr = (curr + 1) % 2;
+            other = (curr + 1) % 2;
+            canPlay = (canPlay << 1) + 1;
+            continue;
         }
 
         // Get input
@@ -291,7 +354,7 @@ int main() {
         }
 
         // Has to be a valid move
-        uint64_t pos = (uint64_t)1 << offset;
+        unsigned long long pos = (unsigned long long)1 << offset;
         if ((pos & (availableMoves & ~board)) == 0) {
             message = "\n-- Can't play there! --\n";
             continue;
@@ -303,19 +366,19 @@ int main() {
             continue;
         }
 
-        uint64_t result = searchBoard(players, pos, 0, curr, other, dirs, 8);
+        unsigned long long result = searchBoard(
+            players, pos, (unsigned long long)0, curr, other, dirs, 8);
 
         // update board
-        players[curr]->board |= result;
-        players[other]->board =
-            players[other]->board ^ (players[other]->board & result);
+        players[curr]->moves |= result;
+        players[other]->moves =
+            players[other]->moves ^ (players[other]->moves & result);
 
         // update current
         curr = (curr + 1) % 2;
         other = (curr + 1) % 2;
         message = "";
 
-        // Update canPlay
         canPlay >>= 1;
     }
 
