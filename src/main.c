@@ -92,7 +92,7 @@ void printBoard(player_t *players[], int count) {
 
 /* Gets player input and handles exits. */
 char *getInput(char *playerName, player_t *players[]) {
-    printf("\n%s's: ", playerName);
+    printf("\n%s: ", playerName);
     // Read into buffer
     char buffer[256];
     if (fgets(buffer, 256, stdin) == NULL) {
